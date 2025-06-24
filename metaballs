@@ -22,7 +22,11 @@ resetterm () {
 }
 
 trap 'resetterm; [[ $diemsg ]] && echo $diemsg' exit
-stty -echo
+[[ $ALREADY_REEXECD ]] || {
+stty raw -echo
+export ALREADY_REEXECD=1
+exec "$BASH" "$0"
+}
 
 escapes=(
    #'\e[?1049h' # alt screen
@@ -64,6 +68,8 @@ initterm () {
     rows=${termcells[0]}
     cols=${termcells[1]}
 
+    winheight=${winpx[0]}
+    winwidth=${winpx[1]}
     rowheight=${cellpx[0]}
     colwidth=${cellpx[1]}
     halfrow=$((rowheight/2))
@@ -92,8 +98,8 @@ getinput () {
                 BUTTON=("${BASH_REMATCH[@]:1:4}")
                 # yes of course we must swap the height and width every time
                 # otherwise this api would be too simple to use
-                (( BUTTON[1] < 0 || BUTTON[1] >= winpx[1] )) && continue
-                (( BUTTON[2] < 0 || BUTTON[2] >= winpx[0] )) && continue
+                (( BUTTON[1] < 0 || BUTTON[1] >= winwidth  )) && continue
+                (( BUTTON[2] < 0 || BUTTON[2] >= winheight )) && continue
                 return
                 ;;
             # csi/ss3 arrows | non csi escape | weird csi
@@ -163,8 +169,104 @@ h=${#hues[@]}
 hues+=("0;0;0")
 
 declare -A states=()
+
+winmin=$((winpx[0]<winpx[1]?winpx[0]:winpx[1]))
+
+balls=()
+
+# the standard wyvill 6th degree polynomial:
+# f(d) = (1 - (d/R)^2)^3   if d <= R, else 0
+# it's C^2 continuous, and it has compact support, so there is no effect after R^2
+# we can thus add each ball independently
+
+# to evaluate it in fixed point maths, pick a scale so that we never overflow
+scale=$((1<<16))
+
+# for now all our balls will have the same radius
+R=$((scale*winmin/5))
+R2=$((scale*winmin**2/25))
+
+wyvill='d2<R2?scale-scale*d2/R2:0'
+field='wyvill*wyvill/100/scale*wyvill/scale'
+
+#wyvill='d2<R2?scale:0'
+#field=wyvill
+
+ballsx=("$((scale*winmin*1/4))" "$((scale*winmin  /4))")
+ballsy=("$((scale*winmin*2/4))" "$((scale*winmin*3/4))")
+
+times=()
+
+declare -A f
+
+alpha=({A..Z} {a..z} {0..9})
+drawball() {
+    local t0 t1
+    t0=${EPOCHREALTIME/.}
+
+    local d2 \
+        rhi rlo c rmin rmax cmin cmax \
+        centrex=${ballsx[$1]} centrey=${ballsy[$1]} \
+        x y \
+        hi lo
+
+    ((rmin = (centrex-R)/scale/rowheight*2))
+    ((rmax = (centrex+R)/scale/rowheight*2+1))
+    ((cmin = (centrey-R)/scale/colwidth))
+    ((cmax = (centrey+R)/scale/colwidth))
+
+    for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
+        printf '\e[%s;%sH' "$((rhi/2))" "$cmin"
+        ((x=rhi/2*rowheight*scale,rlo=rhi+halfrow*scale))
+
+        for ((c=cmin;c<=cmax;c++)) do
+            ((y=c*colwidth*scale))
+            ((d2=((x              -centrex)**2+(y-centrey)**2)/scale,hi=f[$rhi,$c]+=field,hi=hi>255?255:hi))
+            ((d2=((x+halfrow*scale-centrex)**2+(y-centrey)**2)/scale,lo=f[$rlo,$c]+=field,lo=lo>255?255:lo))
+            #printf "${alpha[(c-cmin)%62]}"
+            #sleep .1
+            #printf '\e[38;5;%s;48;5;%sm▀' $((232+(hi>=230?23:hi/10))) $((232+(lo>=230?23:lo/10))) #"${hues[hi%h]}" "${hues[lo%h]}"
+            printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
+                #"$((hi>255?255:hi))" "$((hi>255?255:hi))" "$((hi>255?255:hi))" \
+                #"$((lo>255?255:lo))" "$((lo>255?255:lo))" "$((lo>255?255:lo))"
+                #$((232+(hi>=230?23:hi/10))) $((232+(lo>=230?23:lo/10))) #"${hues[hi%h]}" "${hues[lo%h]}"
+            #printf '\e[38;2;%s;48;2;%sm▀' "${hues[hi%h]}" "${hues[lo%h]}"
+            #printf '\e[K%s\r\n' "\$1=$1 d2=$d2 R2=$R2 x=$x y=$y centrex=$centrex centrey=$centrey hi=$hi lo=$lo" >> log
+            #declare -p d2 R2
+        done
+        #echo
+    done
+    t1=${EPOCHREALTIME/.}
+    times[$1]=$((t1-t0))
+    #echo
+    #declare -p r rmin rmax c cmin cmax
+}
+
+for ball in "${!ballsx[@]}"; do
+    drawball "$ball"
+done
+
+resetterm
+#echo times:
+printf '\e[H\e[m\e[Ktimes:'
+printf ' %sus' "${times[@]}"
+read
+#echo
+#declare -p f
+exit
+
 while getmouse; do
+    #centrex=${BUTTON[1]}
+    #centrey=${BUTTON[2]}
+    #balls+=("$centrex" "$centrey")
+    #((minx=centrex>radius?centrex-radius:0))
+    #((miny=centrey>radius?centrey-radius:0))
+    #((maxx=centrex>radius?centrex-radius:0))
+    #((maxy=centrey>radius?centrey-radius:0))
     (( states[$subrow,$col]=q++%h ))
     (( fill = states[$hirow,$col] * 2 + states[$lorow,$col] ))
     printf '\e[%s;%sH\e[38;2;%s;48;2;%sm▀' "$row" "$col" "${hues[${states[$hirow,$col]-h}]}" "${hues[${states[$lorow,$col]-h}]}"
+    #for ball in "${balls[@]}"; do
+    #    :
+    #done
 done
