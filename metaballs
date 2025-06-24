@@ -29,8 +29,8 @@ exec "$BASH" "$0"
 }
 
 escapes=(
-   #'\e[?1049h' # alt screen
-   #'\e[J'      # erase screen
+    '\e[?1049h' # alt screen
+    '\e[J'      # erase screen
     '\e[?25l'   # hide cursor
     '\e7'       # save cursor pos
     '\e[?1000h' # mouse mode
@@ -73,6 +73,11 @@ initterm () {
     rowheight=${cellpx[0]}
     colwidth=${cellpx[1]}
     halfrow=$((rowheight/2))
+
+    [[ $ASCIINEMA_REC ]] && {
+        printf '\e[48;2;0;0;0m\e[H'
+        printf '%*s' "$((termcells[0]*termcells[1]))"
+    }
 }
 initterm
 
@@ -90,7 +95,7 @@ getinput () {
     local input
     while read -rn1; do
         input+=$REPLY
-        printf '\e[3;1H\e[m\e[Kinput=%s winpx=%s' "${input@Q}" "${winpx[*]@Q}"
+        #printf '\e[3;1H\e[m\e[Kinput=%s winpx=%s' "${input@Q}" "${winpx[*]@Q}"
         case $input in
             $'\e[<'+([-0-9;])[mM])
                 [[ $input =~ $mouseregex ]]
@@ -192,9 +197,10 @@ field='wyvill*wyvill/100/scale*wyvill/scale'
 #wyvill='d2<R2?scale:0'
 #field=wyvill
 
-ballsx=("$((scale*winmin*1/4))" "$((scale*winmin  /4))")
-ballsy=("$((scale*winmin*2/4))" "$((scale*winmin*3/4))")
+#ballsx=("$((scale*winmin*1/4))" "$((scale*winmin  /4))")
+#ballsy=("$((scale*winmin*2/4))" "$((scale*winmin*3/4))")
 
+ballsx=() ballsy=()
 times=()
 
 declare -A f
@@ -210,10 +216,10 @@ drawball() {
         x y \
         hi lo
 
-    ((rmin = (centrex-R)/scale/rowheight*2))
-    ((rmax = (centrex+R)/scale/rowheight*2+1))
-    ((cmin = (centrey-R)/scale/colwidth))
-    ((cmax = (centrey+R)/scale/colwidth))
+    ((rmin = (centrex-R>=0             ?centrex-R:0                  )/scale/rowheight*2))
+    ((rmax = (centrex+R<winheight*scale?centrex+R:(winheight-1)*scale)/scale/rowheight*2+1))
+    ((cmin = (centrey-R>=0             ?centrey-R:0                  )/scale/colwidth))
+    ((cmax = (centrey+R<winwidth *scale?centrey+R:(winwidth -1)*scale)/scale/colwidth))
 
     for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
         printf '\e[%s;%sH' "$((rhi/2))" "$cmin"
@@ -221,8 +227,8 @@ drawball() {
 
         for ((c=cmin;c<=cmax;c++)) do
             ((y=c*colwidth*scale))
-            ((d2=((x              -centrex)**2+(y-centrey)**2)/scale,hi=f[$rhi,$c]+=field,hi=hi>255?255:hi))
-            ((d2=((x+halfrow*scale-centrex)**2+(y-centrey)**2)/scale,lo=f[$rlo,$c]+=field,lo=lo>255?255:lo))
+            ((d2=((x              -centrex)**2+(y-centrey)**2)/scale,hi=(f[$rhi,$c]+=field)/2,hi=hi>255?255:hi))
+            ((d2=((x+halfrow*scale-centrex)**2+(y-centrey)**2)/scale,lo=(f[$rlo,$c]+=field)/2,lo=lo>255?255:lo))
             #printf "${alpha[(c-cmin)%62]}"
             #sleep .1
             #printf '\e[38;5;%s;48;5;%sm▀' $((232+(hi>=230?23:hi/10))) $((232+(lo>=230?23:lo/10))) #"${hues[hi%h]}" "${hues[lo%h]}"
@@ -242,20 +248,24 @@ drawball() {
     #declare -p r rmin rmax c cmin cmax
 }
 
-for ball in "${!ballsx[@]}"; do
-    drawball "$ball"
-done
+#for ball in "${!ballsx[@]}"; do
+#    drawball "$ball"
+#done
 
-resetterm
-#echo times:
-printf '\e[H\e[m\e[Ktimes:'
-printf ' %sus' "${times[@]}"
-read
-#echo
-#declare -p f
-exit
+#resetterm
+##echo times:
+#read
+##echo
+##declare -p f
+#exit
 
 while getmouse; do
+    [[ ${BUTTON[3]} = m ]] || continue
+    ballsy+=("$((BUTTON[1]*scale))")
+    ballsx+=("$((BUTTON[2]*scale))")
+    drawball "${#times[@]}"
+    printf '\e[H\e[m\e[Ktimes:'
+    printf ' %sus' "${times[@]}"
     #centrex=${BUTTON[1]}
     #centrey=${BUTTON[2]}
     #balls+=("$centrex" "$centrey")
@@ -263,9 +273,9 @@ while getmouse; do
     #((miny=centrey>radius?centrey-radius:0))
     #((maxx=centrex>radius?centrex-radius:0))
     #((maxy=centrey>radius?centrey-radius:0))
-    (( states[$subrow,$col]=q++%h ))
-    (( fill = states[$hirow,$col] * 2 + states[$lorow,$col] ))
-    printf '\e[%s;%sH\e[38;2;%s;48;2;%sm▀' "$row" "$col" "${hues[${states[$hirow,$col]-h}]}" "${hues[${states[$lorow,$col]-h}]}"
+    #(( states[$subrow,$col]=q++%h ))
+    #(( fill = states[$hirow,$col] * 2 + states[$lorow,$col] ))
+    #printf '\e[%s;%sH\e[38;2;%s;48;2;%sm▀' "$row" "$col" "${hues[${states[$hirow,$col]-h}]}" "${hues[${states[$lorow,$col]-h}]}"
     #for ball in "${balls[@]}"; do
     #    :
     #done
