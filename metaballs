@@ -20,27 +20,43 @@ resetterm () {
     printf %b "${escapes[@]}"
     stty sane
 }
+exitfunc () {
+    resetterm
+    [[ $diemsg ]] && echo "$diemsg"
+    dispatch exit
+}
 
-trap 'resetterm; [[ $diemsg ]] && echo $diemsg' exit
-[[ $ALREADY_REEXECD ]] || {
+
+trap exitfunc exit
+
+[[ $ALREADY_REEXECD ]] && {
+    notify=($NOTIFY)
+    dispatch=($DISPATCH)
+} || {
 stty raw -echo
 export ALREADY_REEXECD=1
+export NOTIFY=${notify[*]}
+export DISPATCH=${dispatch[*]}
 exec "$BASH" "$0"
 }
 
 escapes=(
-    '\e[?1049h' # alt screen
-    '\e[J'      # erase screen
-    '\e[?25l'   # hide cursor
-    '\e7'       # save cursor pos
-    '\e[?1000h' # mouse mode
-    '\e[?1006h' # sgr mouse mode idk whatever
-    '\e[?1002h' # mouse button even tracking
-    '\e[?1016h' # mouse returns pixels
-    '\e[14t'    # window size in pixels
-    '\e[16t'    # cell size in pixels
-    '\e[18t'    # term size in cells
-    '\e[?6n'    # cursor position just to definitely get a reply
+    '\e[?1049h'  # alt screen
+    '\e[J'       # erase screen
+    '\e[?25l'    # hide cursor
+    '\e7'        # save cursor pos
+    '\e[?1000h'  # mouse mode
+    '\e[?1002h'  # mouse button even tracking
+    '\e[?1006h'  # sgr mouse mode idk whatever
+    '\e[?1016h'  # mouse returns pixels
+    '\e[?1000$p' # query mouse mode
+    '\e[?1002$p' # query mouse button even tracking
+    '\e[?1006$p' # query sgr mouse mode idk whatever
+    '\e[?1016$p' # query mouse returns pixels
+    '\e[14t'     # window size in pixels
+    '\e[16t'     # cell size in pixels
+    '\e[18t'     # term size in cells
+    '\e[?6n'     # cursor position just to definitely get a reply
 )
 
 initterm () {
@@ -50,17 +66,38 @@ initterm () {
     printf %b "${escapes[@]}"
     read -r -t.1 -d R
     csi=$'\e\['
+    qregex=';([^$]+)[$]y' # decrqm replies
     tregex=';([^;]+);([^t]+)t'
-    regex="^(${csi}4$tregex)?(${csi}6$tregex)?(${csi}8$tregex)?"
+
+    regex=
+    regex+="(${csi}[?]1000$qregex)?"
+    regex+="(${csi}[?]1002$qregex)?"
+    regex+="(${csi}[?]1006$qregex)?"
+    regex+="(${csi}[?]1016$qregex)?"
+    regex+="(${csi}4$tregex)?"
+    regex+="(${csi}6$tregex)?"
+    regex+="(${csi}8$tregex)?"
+
     [[ $REPLY =~ $regex ]]
 
-        winpx=(${BASH_REMATCH[2]} ${BASH_REMATCH[3]})
-       cellpx=(${BASH_REMATCH[5]} ${BASH_REMATCH[6]})
-    termcells=(${BASH_REMATCH[8]} ${BASH_REMATCH[9]})
+    modes=(
+        [1000]=${BASH_REMATCH[2]}
+        [1002]=${BASH_REMATCH[4]}
+        [1006]=${BASH_REMATCH[6]}
+        [1016]=${BASH_REMATCH[8]}
+    )
 
-    if ((!${#cellpx[@]} && ${#winpx[@]} && ${#termcells[@]})); then
+        winpx=(${BASH_REMATCH[10]} ${BASH_REMATCH[11]})
+       cellpx=(${BASH_REMATCH[13]} ${BASH_REMATCH[14]})
+    termcells=(${BASH_REMATCH[16]} ${BASH_REMATCH[17]})
+
+    if (((modes[1016]&1) != 1)); then # mouse will not report pixel events
+        winpx[0]=$((termcells[0]*2)) winpx[1]=${termcells[1]}
+        cellpx=(1 1)
+    elif ((!${#cellpx[@]} && ${#winpx[@]} && ${#termcells[@]})); then
         ((cellpx[0]=winpx[0]/termcells[0], cellpx[1]=winpx[1]/termcells[1]))
     fi
+
     if ((!${#cellpx[@]})); then
         die "could not get cell size :(   reply=${REPLY@Q}"
     fi
@@ -68,16 +105,14 @@ initterm () {
     rows=${termcells[0]}
     cols=${termcells[1]}
 
-    winheight=${winpx[0]}
-    winwidth=${winpx[1]}
-    rowheight=${cellpx[0]}
-    colwidth=${cellpx[1]}
-    halfrow=$((rowheight/2))
+    winh=${winpx[0]}
+    winw=${winpx[1]}
+    rowh=${cellpx[0]}
+    colw=${cellpx[1]}
+    hrow=$((rowh/2)) # halfrow
 
-    [[ $ASCIINEMA_REC ]] && {
-        printf '\e[48;2;0;0;0m\e[H'
-        printf '%*s' "$((termcells[0]*termcells[1]))"
-    }
+    printf '\e[48;2;0;0;0m\e[H'
+    printf '%*s' "$((termcells[0]*termcells[1]))"
 }
 initterm
 
@@ -95,7 +130,6 @@ getinput () {
     local input
     while read -rn1; do
         input+=$REPLY
-        #printf '\e[3;1H\e[m\e[Kinput=%s winpx=%s' "${input@Q}" "${winpx[*]@Q}"
         case $input in
             $'\e[<'+([-0-9;])[mM])
                 [[ $input =~ $mouseregex ]]
@@ -103,8 +137,8 @@ getinput () {
                 BUTTON=("${BASH_REMATCH[@]:1:4}")
                 # yes of course we must swap the height and width every time
                 # otherwise this api would be too simple to use
-                (( BUTTON[1] < 0 || BUTTON[1] >= winwidth  )) && continue
-                (( BUTTON[2] < 0 || BUTTON[2] >= winheight )) && continue
+                (( BUTTON[1] < 0 || BUTTON[1] >= winw )) && continue
+                (( BUTTON[2] < 0 || BUTTON[2] >= winh )) && continue
                 return
                 ;;
             # csi/ss3 arrows | non csi escape | weird csi
@@ -119,9 +153,9 @@ getmouse () {
     getinput
 
     ((
-      col   = BUTTON[1] / colwidth + 1,
-      row   = BUTTON[2] / rowheight + 1,
-      hilo  = (BUTTON[2] % rowheight) > halfrow,
+      col   = BUTTON[1] / colw + 1,
+      row   = BUTTON[2] / rowh + 1,
+      hilo  = (BUTTON[2] % rowh) > hrow,
       hirow = row * 2,
       lorow = row * 2 + 1,
       subrow = row * 2 + hilo
@@ -194,12 +228,6 @@ R2=$((scale*winmin**2/25))
 wyvill='d2<R2?scale-scale*d2/R2:0'
 field='wyvill*wyvill/100/scale*wyvill/scale'
 
-#wyvill='d2<R2?scale:0'
-#field=wyvill
-
-#ballsx=("$((scale*winmin*1/4))" "$((scale*winmin  /4))")
-#ballsy=("$((scale*winmin*2/4))" "$((scale*winmin*3/4))")
-
 ballsx=() ballsy=()
 times=()
 
@@ -210,54 +238,52 @@ drawball() {
     local t0 t1
     t0=${EPOCHREALTIME/.}
 
-    local d2 \
-        rhi rlo c rmin rmax cmin cmax \
-        centrex=${ballsx[$1]} centrey=${ballsy[$1]} \
-        x y \
-        hi lo
+    local d2
+    local rhi rlo rmin rmax c cmin cmax
+    local cx=${ballsx[$1]} cy=${ballsy[$1]}
+    local x y
+    local hi lo
+    local wh=$(((winh-2)*scale)) ww=$(((winw-2)*scale))
 
-    ((rmin = (centrex-R>=0             ?centrex-R:0                  )/scale/rowheight*2))
-    ((rmax = (centrex+R<winheight*scale?centrex+R:(winheight-1)*scale)/scale/rowheight*2+1))
-    ((cmin = (centrey-R>=0             ?centrey-R:0                  )/scale/colwidth))
-    ((cmax = (centrey+R<winwidth *scale?centrey+R:(winwidth -1)*scale)/scale/colwidth))
+    if (((modes[1016]&1) == 1)); then
+        ((rmin = (cx-R>=0?cx-R:0 )/scale/rowh*2))
+        ((rmax = (cx+R<wh?cx+R:wh)/scale/rowh*2+1))
+        ((cmin = (cy-R>=0?cy-R:0 )/scale/colw))
+        ((cmax = (cy+R<ww?cy+R:ww)/scale/colw))
 
-    for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
-        printf '\e[%s;%sH' "$((rhi/2))" "$cmin"
-        ((x=rhi/2*rowheight*scale,rlo=rhi+halfrow*scale))
+        for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
+            printf '\e[%s;%sH' "$((rhi/2+1))" "$((cmin+1))"
+            ((x=rhi/2*rowh*scale,rlo=rhi+hrow*scale))
 
-        for ((c=cmin;c<=cmax;c++)) do
-            ((y=c*colwidth*scale))
-            ((d2=((x              -centrex)**2+(y-centrey)**2)/scale,hi=(f[$rhi,$c]+=field)/2,hi=hi>255?255:hi))
-            ((d2=((x+halfrow*scale-centrex)**2+(y-centrey)**2)/scale,lo=(f[$rlo,$c]+=field)/2,lo=lo>255?255:lo))
-            #printf "${alpha[(c-cmin)%62]}"
-            #sleep .1
-            #printf '\e[38;5;%s;48;5;%sm▀' $((232+(hi>=230?23:hi/10))) $((232+(lo>=230?23:lo/10))) #"${hues[hi%h]}" "${hues[lo%h]}"
-            printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
-                #"$((hi>255?255:hi))" "$((hi>255?255:hi))" "$((hi>255?255:hi))" \
-                #"$((lo>255?255:lo))" "$((lo>255?255:lo))" "$((lo>255?255:lo))"
-                #$((232+(hi>=230?23:hi/10))) $((232+(lo>=230?23:lo/10))) #"${hues[hi%h]}" "${hues[lo%h]}"
-            #printf '\e[38;2;%s;48;2;%sm▀' "${hues[hi%h]}" "${hues[lo%h]}"
-            #printf '\e[K%s\r\n' "\$1=$1 d2=$d2 R2=$R2 x=$x y=$y centrex=$centrex centrey=$centrey hi=$hi lo=$lo" >> log
-            #declare -p d2 R2
+            for ((c=cmin;c<=cmax;c++)) do
+                ((y=c*colw*scale))
+                ((d2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[$rhi,$c]+=field)/2,hi=hi>255?255:hi))
+                ((d2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[$rlo,$c]+=field)/2,lo=lo>255?255:lo))
+                printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
+            done
         done
-        #echo
-    done
+    else
+        ((cx*=2))
+        ((rmin = (cx-R>=0?cx-R:0 )/scale/2))
+        ((rmax = (cx+R<wh?cx+R:wh)/scale/2))
+        ((cmin = (cy-R>=0?cy-R:0 )/scale/2*2))
+        ((cmax = (cy+R<ww?cy+R:ww)/scale/2*2))
+
+        for ((r=rmin;r<=rmax;r++)) do
+            printf '\e[%s;%sH' "$((r+1))" "$((cmin+1))"
+            ((x=r*2*scale))
+
+            for ((c=cmin;c<=cmax;c+=2)) do
+                ((y=c*scale))
+                ((d2=((x-cx)**2+(y-cy)**2)/scale,hi=(f[$r,$c]+=field)/2,hi=hi>255?255:hi))
+                printf '\e[48;2;%s;%s;%sm  ' "$hi" "$hi" "$hi"
+            done
+        done
+    fi
+
     t1=${EPOCHREALTIME/.}
     times[$1]=$((t1-t0))
-    #echo
-    #declare -p r rmin rmax c cmin cmax
 }
-
-#for ball in "${!ballsx[@]}"; do
-#    drawball "$ball"
-#done
-
-#resetterm
-##echo times:
-#read
-##echo
-##declare -p f
-#exit
 
 while getmouse; do
     [[ ${BUTTON[3]} = m ]] || continue
@@ -265,18 +291,5 @@ while getmouse; do
     ballsx+=("$((BUTTON[2]*scale))")
     drawball "${#times[@]}"
     printf '\e[H\e[m\e[Ktimes:'
-    printf ' %sus' "${times[@]}"
-    #centrex=${BUTTON[1]}
-    #centrey=${BUTTON[2]}
-    #balls+=("$centrex" "$centrey")
-    #((minx=centrex>radius?centrex-radius:0))
-    #((miny=centrey>radius?centrey-radius:0))
-    #((maxx=centrex>radius?centrex-radius:0))
-    #((maxy=centrey>radius?centrey-radius:0))
-    #(( states[$subrow,$col]=q++%h ))
-    #(( fill = states[$hirow,$col] * 2 + states[$lorow,$col] ))
-    #printf '\e[%s;%sH\e[38;2;%s;48;2;%sm▀' "$row" "$col" "${hues[${states[$hirow,$col]-h}]}" "${hues[${states[$lorow,$col]-h}]}"
-    #for ball in "${balls[@]}"; do
-    #    :
-    #done
+    printf ' %sµs' "${times[@]}"
 done
