@@ -2,6 +2,12 @@
 
 shopt -s extglob
 
+LO=${LO-200} HI=${HI-250}
+
+dispatch () { :; }
+[[ -e dispatch.bash ]] && source ./dispatch.bash
+[[ -e .config ]] && source ./.config
+
 diemsg=
 die () { diemsg=$*; exit 1; }
 
@@ -33,11 +39,11 @@ trap exitfunc exit
     notify=($NOTIFY)
     dispatch=($DISPATCH)
 } || {
-stty raw -echo
-export ALREADY_REEXECD=1
-export NOTIFY=${notify[*]}
-export DISPATCH=${dispatch[*]}
-exec "$BASH" "$0"
+    stty raw -echo
+    export ALREADY_REEXECD=1
+    export NOTIFY=${notify[*]}
+    export DISPATCH=${dispatch[*]}
+    exec "$BASH" "$0"
 }
 
 escapes=(
@@ -257,8 +263,8 @@ drawball() {
 
             for ((c=cmin;c<=cmax;c++)) do
                 ((y=c*colw*scale))
-                ((d2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[$rhi,$c]+=field)/2,hi=hi>255?255:hi))
-                ((d2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[$rlo,$c]+=field)/2,lo=lo>255?255:lo))
+                ((d2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[$rhi,$c]+=field),hi=hi>LO&&hi<HI?255:0))
+                ((d2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[$rlo,$c]+=field),lo=lo>LO&&lo<HI?255:0))
                 printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
             done
         done
@@ -290,6 +296,4 @@ while getmouse; do
     ballsy+=("$((BUTTON[1]*scale))")
     ballsx+=("$((BUTTON[2]*scale))")
     drawball "${#times[@]}"
-    printf '\e[H\e[m\e[Ktimes:'
-    printf ' %sµs' "${times[@]}"
 done
