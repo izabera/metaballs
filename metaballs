@@ -325,7 +325,7 @@ while getmouse; do
     cx=$((BUTTON[2]*scale))
 
     t0=${EPOCHREALTIME/.}
-    dispatch 'drawball $cx $cy > buffered."$tid"; printf x'
+    dispatch 'drawball "$cx" "$cy" > buffered."$tid"; printf x'
     for ((t=0;t<NTHR;t++)) do
         read -rn1 -u"${notify[t]}"
         read -rd '' 'buffered[t]' < buffered."$t"

@@ -26,7 +26,7 @@ addstate cx cy
 NTHR=${NTHR-4}
 
 run_listeners () {
-    ((NTHR>1)) &&
+    #((NTHR>1)) &&
     for ((thread=0;thread<NTHR;thread++)) do
         # bash properly supports one coproc at a time
         # then it gets confused and forgets to clean processes up etc
