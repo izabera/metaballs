@@ -5,8 +5,8 @@ shopt -s extglob
 LO=${LO-200} HI=${HI-250}
 
 dispatch () { :; }
-[[ -e dispatch.bash ]] && source ./dispatch.bash
 [[ -e .config ]] && source ./.config
+[[ -e dispatch.bash ]] && source ./dispatch.bash
 
 diemsg=
 die () { diemsg=$*; exit 1; }
@@ -29,7 +29,36 @@ resetterm () {
 exitfunc () {
     resetterm
     [[ $diemsg ]] && echo "$diemsg"
+    balltimes
     dispatch exit
+}
+
+balltimes () {
+    sorted=() sum=0 counted=()
+    ((${#balltimes[@]})) || return
+    for n in "${balltimes[@]}"; do ((sum += n)); sorted+=("$n"); done
+
+    min=${sorted[0]} max=${sorted[-1]}
+    ballcount=${#sorted[@]}
+    mean=$((sum/ballcount))
+    sum=0 sqdiffs=()
+    for i in "${!sorted[@]}"; do
+        ((sum+=(sqdiffs[i]=(sorted[i]-mean)**2)))
+    done
+    variance=$((sum/ballcount))
+
+    # newton's method
+    x=$((variance/2))
+    while ((x)); do
+        ((prev=x,x=(x+variance/x)/2,x==prev)) && break
+    done
+    stddev=$x
+
+    echo 'fastest metaball' "$min"µs
+    echo 'slowest metaball' "$max"µs
+    echo 'average metaball' "$mean"µs
+    echo '95th %ile' "${sorted[ballcount*95/100]}"µs
+    echo 'std dev' "$stddev"µs
 }
 
 
@@ -39,11 +68,12 @@ trap exitfunc exit
     notify=($NOTIFY)
     dispatch=($DISPATCH)
 } || {
-    stty raw -echo
     export ALREADY_REEXECD=1
     export NOTIFY=${notify[*]}
     export DISPATCH=${dispatch[*]}
-    exec "$BASH" "$0"
+    stty raw -echo
+    # exec "$BASH" "$0"
+    # todo
 }
 
 escapes=(
@@ -217,8 +247,6 @@ declare -A states=()
 
 winmin=$((winpx[0]<winpx[1]?winpx[0]:winpx[1]))
 
-balls=()
-
 # the standard wyvill 6th degree polynomial:
 # f(d) = (1 - (d/R)^2)^3   if d <= R, else 0
 # it's C^2 continuous, and it has compact support, so there is no effect after R^2
@@ -234,19 +262,21 @@ R2=$((scale*winmin**2/25))
 wyvill='d2<R2?scale-scale*d2/R2:0'
 field='wyvill*wyvill/100/scale*wyvill/scale'
 
-ballsx=() ballsy=()
 times=()
 
 declare -A f
 
 alpha=({A..Z} {a..z} {0..9})
+expr=(
+    'y=c*colw*scale'
+    'd2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
+    'd2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[' ']+=field),lo=lo>LO&&lo<HI?255:0'
+    'y=c*scale, d2=((x-cx)**2+(y-cy)**2)/scale,hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
+)
 drawball() {
-    local t0 t1
-    t0=${EPOCHREALTIME/.}
-
     local d2
     local rhi rlo rmin rmax c cmin cmax
-    local cx=${ballsx[$1]} cy=${ballsy[$1]}
+    local cx=$1 cy=$2
     local x y
     local hi lo
     local wh=$(((winh-2)*scale)) ww=$(((winw-2)*scale))
@@ -256,15 +286,15 @@ drawball() {
         ((rmax = (cx+R<wh?cx+R:wh)/scale/rowh*2+1))
         ((cmin = (cy-R>=0?cy-R:0 )/scale/colw))
         ((cmax = (cy+R<ww?cy+R:ww)/scale/colw))
+        echo debug:$tid:mode1016=1,rmin=$rmin,rmax=$rmax >&2
 
         for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
+            ((rhi % NTHR == tid )) || continue
             printf '\e[%s;%sH' "$((rhi/2+1))" "$((cmin+1))"
             ((x=rhi/2*rowh*scale,rlo=rhi+hrow*scale))
 
             for ((c=cmin;c<=cmax;c++)) do
-                ((y=c*colw*scale))
-                ((d2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[$rhi,$c]+=field),hi=hi>LO&&hi<HI?255:0))
-                ((d2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[$rlo,$c]+=field),lo=lo>LO&&lo<HI?255:0))
+                ((${expr[0]},${expr[1]}$rhi,$c${expr[2]},${expr[3]}$rlo,$c${expr[4]}))
                 printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
             done
         done
@@ -276,24 +306,31 @@ drawball() {
         ((cmax = (cy+R<ww?cy+R:ww)/scale/2*2))
 
         for ((r=rmin;r<=rmax;r++)) do
+            ((rhi % NTHR == tid )) || continue
             printf '\e[%s;%sH' "$((r+1))" "$((cmin+1))"
             ((x=r*2*scale))
 
             for ((c=cmin;c<=cmax;c+=2)) do
-                ((y=c*scale))
-                ((d2=((x-cx)**2+(y-cy)**2)/scale,hi=(f[$r,$c]+=field)/2,hi=hi>255?255:hi))
+                ((${expr[5]}$r,$c${expr[6]}))
                 printf '\e[48;2;%s;%s;%sm  ' "$hi" "$hi" "$hi"
             done
         done
     fi
-
-    t1=${EPOCHREALTIME/.}
-    times[$1]=$((t1-t0))
 }
+run_listeners
 
 while getmouse; do
     [[ ${BUTTON[3]} = m ]] || continue
-    ballsy+=("$((BUTTON[1]*scale))")
-    ballsx+=("$((BUTTON[2]*scale))")
-    drawball "${#times[@]}"
+    cy=$((BUTTON[1]*scale))
+    cx=$((BUTTON[2]*scale))
+
+    t0=${EPOCHREALTIME/.}
+    dispatch 'drawball $cx $cy > buffered."$tid"; printf x'
+    for ((t=0;t<NTHR;t++)) do
+        read -rn1 -u"${notify[t]}"
+        read -rd '' 'buffered[t]' < buffered."$t"
+    done
+    printf %s "${buffered[@]}"
+    t1=${EPOCHREALTIME/.}
+    balltimes+=($((t1-t0)))
 done
