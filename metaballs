@@ -157,7 +157,7 @@ initterm () {
     colw=${cellpx[1]}
     hrow=$((rowh/2)) # halfrow
 
-    printf '\e[48;2;0;0;0m\e[H'
+    printf '\e[48;5;16m\e[H'
     printf '%*s' "$((termcells[0]*termcells[1]))"
 }
 initterm
@@ -214,47 +214,6 @@ fills=(
 )
 
 
-#      r      |     g     |     b     | rdx | gdx | bdx
-# ------------+-----------+-----------+-----+-----+----
-# max         | 0->max    | 0         |  0  |  1  |  0
-# max->0      |    max    | 0         | -1  |  0  |  0
-#      0      |    max    | 0->max    |  0  |  0  |  1
-#      0      |    max->0 |    max    |  0  | -1  |  0
-#      0->max |         0 |    max    |  1  |  0  |  0
-#         max |         0 |    max->0 |  0  |  0  | -1
-
-# walk around an rgb cube on the edges that don't include black or white
-# this is equivalent to picking all the colours in hsl with 100% saturation
-walkcube () {
-    local max=$(($1-1)) fmt=$2
-    local rdx=4 gdx=2 bdx=0
-    local r=max g=0 b=0
-    local i j
-
-    for (( i = 0; i < 6; i++ )) do
-        for (( j = 0; j < max; j++ )) do
-            printf -v 'hues[i*max+j]' "$fmt" \
-                "$(( r += (rdx%6==2)-(rdx%6==5) ))" \
-                "$(( g += (gdx%6==2)-(gdx%6==5) ))" \
-                "$(( b += (bdx%6==2)-(bdx%6==5) ))"
-        done
-        (( rdx = (rdx+1) % 6, gdx = (gdx+1) % 6, bdx = (bdx+1) % 6 ))
-    done
-}
-
-# 256col hues:
-# declare -ai hues
-# walkcube 6 '16 + %d*6*6 + %d*6 + %d'
-
-# rgb hues:
-hues=()
-walkcube 256 '%d;%d;%d'
-
-h=${#hues[@]}
-hues+=("0;0;0")
-
-declare -A states=()
-
 winmin=$((winpx[0]<winpx[1]?winpx[0]:winpx[1]))
 
 # the standard wyvill 6th degree polynomial:
@@ -280,8 +239,8 @@ declare -A f
 alpha=({A..Z} {a..z} {0..9})
 expr=(
     'y=c*colw*scale'
-    'd2=(xdhi+(y-cy)**2),hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
-    'd2=(xdlo+(y-cy)**2),lo=(f[' ']+=field),lo=lo>LO&&lo<HI?255:0'
+    'd2=(xdhi+(y-cy)**2),hi=(f[' ']+=field),hi=hi>LO&&hi<HI?231:16'
+    'd2=(xdlo+(y-cy)**2),lo=(f[' ']+=field),lo=lo>LO&&lo<HI?231:16'
 )
 drawball() {
     local d2
@@ -306,7 +265,7 @@ drawball() {
 
             for ((c=cmin;c<=cmax;c++)) do
                 ((${expr[0]},${expr[1]}$rhi,$c${expr[2]},${expr[3]}$rlo,$c${expr[4]}))
-                printf '\e[38;2;%s;%s;%s;48;2;%s;%s;%sm▀' "$hi" "$hi" "$hi" "$lo" "$lo" "$lo"
+                printf '\e[38;5;%s;48;5;%sm▀' "$hi" "$lo"
             done
         done
     else
@@ -323,7 +282,7 @@ drawball() {
 
             for ((c=cmin;c<=cmax;c+=2)) do
                 ((${expr[0]},${expr[1]}$r,$c${expr[2]}))
-                printf '\e[48;2;%s;%s;%sm  ' "$hi" "$hi" "$hi"
+                printf '\e[48;5;%sm  ' "$hi"
             done
         done
     fi
