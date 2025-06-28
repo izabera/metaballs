@@ -36,7 +36,15 @@ exitfunc () {
 balltimes () {
     sorted=() sum=0 counted=()
     ((${#balltimes[@]})) || return
-    for n in "${balltimes[@]}"; do ((sum += n)); sorted+=("$n"); done
+    for n in "${balltimes[@]}"; do
+        ((sum += n))
+        ((counted[n]++))
+    done
+    for n in "${!counted[@]}"; do
+        for ((i=0; i<counted[n]; i++)) do
+            sorted+=("$n")
+        done
+    done
 
     min=${sorted[0]} max=${sorted[-1]}
     ballcount=${#sorted[@]}
@@ -54,6 +62,7 @@ balltimes () {
     done
     stddev=$x
 
+    echo 'metaball count' "$ballcount"
     echo 'fastest metaball' "$min"µs
     echo 'slowest metaball' "$max"µs
     echo 'average metaball' "$mean"µs
