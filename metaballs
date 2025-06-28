@@ -59,6 +59,7 @@ balltimes () {
     echo 'average metaball' "$mean"µs
     echo '95th %ile' "${sorted[ballcount*95/100]}"µs
     echo 'std dev' "$stddev"µs
+    echo 'sizes' "colw=$colw rowh=$rowh winh=$winh winw=$winw"
 }
 
 
@@ -269,9 +270,8 @@ declare -A f
 alpha=({A..Z} {a..z} {0..9})
 expr=(
     'y=c*colw*scale'
-    'd2=((x           -cx)**2+(y-cy)**2)/scale,hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
-    'd2=((x+hrow*scale-cx)**2+(y-cy)**2)/scale,lo=(f[' ']+=field),lo=lo>LO&&lo<HI?255:0'
-    'y=c*scale, d2=((x-cx)**2+(y-cy)**2)/scale,hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
+    'd2=(xdhi+(y-cy)**2)/scale,hi=(f[' ']+=field),hi=hi>LO&&hi<HI?255:0'
+    'd2=(xdlo+(y-cy)**2)/scale,lo=(f[' ']+=field),lo=lo>LO&&lo<HI?255:0'
 )
 drawball() {
     local d2
@@ -286,12 +286,13 @@ drawball() {
         ((rmax = (cx+R<wh?cx+R:wh)/scale/rowh*2+1))
         ((cmin = (cy-R>=0?cy-R:0 )/scale/colw))
         ((cmax = (cy+R<ww?cy+R:ww)/scale/colw))
-        echo debug:$tid:mode1016=1,rmin=$rmin,rmax=$rmax >&2
+        #echo debug:$tid:mode1016=1,rmin=$rmin,rmax=$rmax >&2
 
         for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
             ((rhi % NTHR == tid )) || continue
             printf '\e[%s;%sH' "$((rhi/2+1))" "$((cmin+1))"
             ((x=rhi/2*rowh*scale,rlo=rhi+hrow*scale))
+            ((xdhi=(x-cx)**2,xdlo=(x+hrow*scale-cx)**2))
 
             for ((c=cmin;c<=cmax;c++)) do
                 ((${expr[0]},${expr[1]}$rhi,$c${expr[2]},${expr[3]}$rlo,$c${expr[4]}))
@@ -308,10 +309,10 @@ drawball() {
         for ((r=rmin;r<=rmax;r++)) do
             ((rhi % NTHR == tid )) || continue
             printf '\e[%s;%sH' "$((r+1))" "$((cmin+1))"
-            ((x=r*2*scale))
+            ((x=r*2*scale,xdhi=(x-cx)**2))
 
             for ((c=cmin;c<=cmax;c+=2)) do
-                ((${expr[5]}$r,$c${expr[6]}))
+                ((${expr[0]},${expr[1]}$r,$c${expr[2]}))
                 printf '\e[48;2;%s;%s;%sm  ' "$hi" "$hi" "$hi"
             done
         done
