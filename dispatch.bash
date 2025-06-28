@@ -21,7 +21,7 @@ declare -A state
 addstate () for _ do state[$_]=$_; done
 clearstate () for _ do unset "state[$_]"; done
 oneshot () { addstate "$@"; oneshot+=("$@"); }
-addstate cx cy
+addstate cx cy button
 
 NTHR=${NTHR-4}
 

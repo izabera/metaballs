@@ -236,12 +236,6 @@ times=()
 
 declare -A f
 
-alpha=({A..Z} {a..z} {0..9})
-expr=(
-    'y=c*colw*scale'
-    'd2=(xdhi+(y-cy)**2),hi=(f[' ']+=field),hi=hi>LO&&hi<HI?231:16'
-    'd2=(xdlo+(y-cy)**2),lo=(f[' ']+=field),lo=lo>LO&&lo<HI?231:16'
-)
 drawball() {
     local d2
     local rhi rlo rmin rmax c cmin cmax
@@ -249,6 +243,13 @@ drawball() {
     local x y
     local hi lo
     local wh=$(((winh-2)*scale)) ww=$(((winw-2)*scale))
+
+    local sign=(+ '' -)
+    local expr=(
+        'y=c*colw*scale'
+        'd2=(xdhi+(y-cy)**2),hi=(f[' "]${sign[$3]}=field),hi=hi>LO&&hi<HI?231:16"
+        'd2=(xdlo+(y-cy)**2),lo=(f[' "]${sign[$3]}=field),lo=lo>LO&&lo<HI?231:16"
+    )
 
     if (((modes[1016]&1) == 1)); then
         ((rmin = (cx-R>=0?cx-R:0 )/scale/rowh*2))
@@ -291,11 +292,13 @@ run_listeners
 
 while getmouse; do
     [[ ${BUTTON[3]} = m ]] || continue
+    button=$((BUTTON[0]&3))
+    (( button != 1 )) || continue
     cy=$((BUTTON[1]*scale))
     cx=$((BUTTON[2]*scale))
 
     t0=${EPOCHREALTIME/.}
-    dispatch 'drawball "$cx" "$cy" > buffered."$tid"; printf x'
+    dispatch 'drawball "$cx" "$cy" "$button" > buffered."$tid"; printf x'
     for ((t=0;t<NTHR;t++)) do
         read -rn1 -u"${notify[t]}"
         read -rd '' 'buffered[t]' < buffered."$t"
