@@ -63,11 +63,11 @@ balltimes () {
     stddev=$x
 
     echo 'metaball count' "$ballcount"
-    echo 'fastest metaball' "$min"µs
-    echo 'slowest metaball' "$max"µs
-    echo 'average metaball' "$mean"µs
-    echo '95th %ile' "${sorted[ballcount*95/100]}"µs
-    echo 'std dev' "$stddev"µs
+    printf "fastest metaball %'dµs\n" "$min"
+    printf "slowest metaball %'dµs\n" "$max"
+    printf "average metaball %'dµs\n" "$mean"
+    printf "95th %%ile %'dµs\n" "${sorted[ballcount*95/100]}"
+    printf "std dev %'dµs\n" "$stddev"
     echo 'sizes' "colw=$colw rowh=$rowh winh=$winh winw=$winw"
 }
 
@@ -266,7 +266,7 @@ winmin=$((winpx[0]<winpx[1]?winpx[0]:winpx[1]))
 scale=$((1<<16))
 
 # for now all our balls will have the same radius
-R=$((scale*winmin/5))
+ R=$((scale*winmin/5))
 R2=$((scale*winmin**2/25))
 
 wyvill='d2<R2?scale-scale*d2/R2:0'
