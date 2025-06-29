@@ -259,7 +259,7 @@ drawball() {
         #echo debug:$tid:mode1016=1,rmin=$rmin,rmax=$rmax >&2
 
         for ((rhi=rmin;rhi<=rmax;rhi+=2)) do
-            ((rhi % NTHR == tid )) || continue
+            ((rhi/2 % NTHR == tid )) || continue
             printf '\e[%s;%sH' "$((rhi/2+1))" "$((cmin+1))"
             ((x=rhi/2*rowh*scale,rlo=rhi+hrow*scale))
             ((xdhi=(x-cx)**2,xdlo=(x+hrow*scale-cx)**2))
